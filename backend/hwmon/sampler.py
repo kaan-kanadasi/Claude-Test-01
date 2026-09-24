@@ -12,7 +12,9 @@ from .collectors.base import Collector
 
 log = logging.getLogger(__name__)
 
-Snapshot = dict[str, Any]  # {"ts": float, "metrics": {key: float}, "status": {collector: str}}
+# {"ts": float, "metrics": {key: float}, "status": {collector: str}, "details": {collector: Any}}
+# "details" holds live-only structured data (e.g. process lists); it is never persisted.
+Snapshot = dict[str, Any]
 
 
 class Hub:
@@ -42,6 +44,7 @@ class Hub:
 class _State:
     def __init__(self):
         self.metrics: dict[str, float] = {}
+        self.details: Any = None
         self.status = "ok"
         self.next_at = 0.0
         self.backoff = 0.0
@@ -69,11 +72,13 @@ class Sampler:
         now = self._clock()
         metrics: dict[str, float] = {}
         status: dict[str, str] = {}
+        details: dict[str, Any] = {}
         for c in self.collectors:
             st = self._state[c.name]
             if now >= st.next_at:
                 try:
                     st.metrics = c.sample()
+                    st.details = getattr(c, "details", None)
                     st.status = "ok"
                     st.backoff = 0.0
                     st.next_at = now + (c.interval or 0.0)
@@ -81,15 +86,18 @@ class Sampler:
                     if st.status == "ok":
                         log.warning("collector %s failed: %s", c.name, e)
                     st.metrics = {}
+                    st.details = None
                     st.status = f"error: {e}"
                     st.backoff = min(max(st.backoff * 2, self.MIN_BACKOFF_S), self.MAX_BACKOFF_S)
                     st.next_at = now + st.backoff
             metrics.update(st.metrics)
             status[c.name] = st.status
+            if st.details is not None:
+                details[c.name] = st.details
         for name, reason in self.unavailable.items():
             status[name] = f"unavailable: {reason}"
 
-        snapshot = {"ts": now, "metrics": metrics, "status": status}
+        snapshot = {"ts": now, "metrics": metrics, "status": status, "details": details}
         self.latest = snapshot
 
         if self.store is not None and (

@@ -105,6 +105,34 @@ def test_persists_at_persist_interval():
     assert [ts for ts, _ in store.writes] == [1000.0, 1005.0, 1010.0]
 
 
+class DetailCollector(StubCollector):
+    def __init__(self):
+        super().__init__("procs", {"proc.count": 2.0})
+
+    def sample(self):
+        m = super().sample()
+        self.details = [{"name": "a"}, {"name": "b"}]
+        return m
+
+
+def test_details_are_included_in_snapshot_but_not_persisted():
+    store = RecordingStore()
+    d = DetailCollector()
+    s, _ = make([d, StubCollector("a", {"a.x": 1.0})], store=store)
+    snap = s.tick()
+    assert snap["details"] == {"procs": [{"name": "a"}, {"name": "b"}]}
+    assert store.writes == [(1000.0, {"proc.count": 2.0, "a.x": 1.0})]
+
+
+def test_details_are_dropped_when_collector_fails():
+    d = DetailCollector()
+    s, clock = make([d])
+    s.tick()
+    d.fail = True
+    clock.advance(1)
+    assert s.tick()["details"] == {}
+
+
 def test_run_samples_on_one_dedicated_thread():
     """psutil.cpu_percent keeps per-thread state, so ticks must not hop between pool threads."""
     import threading

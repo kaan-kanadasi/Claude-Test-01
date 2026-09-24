@@ -16,6 +16,7 @@ class InfoCollector:
         return {"cpu": {"name": "Test CPU", "cores": 2, "threads": 4, "base_mhz": 2300.0}}
 
     def sample(self):
+        self.details = [{"name": "python", "cpu": 4.5}]
         return {"cpu.total": 42.0}
 
 
@@ -71,6 +72,7 @@ def test_snapshot(client):
     snap = wait_for(lambda: (r := client.get("/api/snapshot")).status_code == 200 and r.json())
     assert snap["metrics"] == {"cpu.total": 42.0, "gpu.nvidia0.util": 5.0, "gpu.intel0.util": 7.0}
     assert snap["status"]["sensors"] == "unavailable: no provider"
+    assert snap["details"] == {"cpu": [{"name": "python", "cpu": 4.5}]}
 
 
 def test_websocket_streams_snapshots(client):
