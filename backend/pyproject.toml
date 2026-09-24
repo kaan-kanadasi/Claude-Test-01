@@ -1,0 +1,22 @@
+[project]
+name = "hwmon"
+version = "0.1.0"
+description = "Read-only local hardware monitor dashboard backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "psutil>=6.0",
+    "nvidia-ml-py>=12.560",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
