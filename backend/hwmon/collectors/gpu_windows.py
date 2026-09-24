@@ -22,8 +22,16 @@ UTIL_PATH = r"\GPU Engine(*)\Utilization Percentage"
 DEDICATED_PATH = r"\GPU Adapter Memory(*)\Dedicated Usage"
 SHARED_PATH = r"\GPU Adapter Memory(*)\Shared Usage"
 
-_ENGINE_RE = re.compile(r"luid_(0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_(\d+)_eng_(\d+)_engtype_(.*)$")
+_ENGINE_RE = re.compile(r"pid_(\d+)_luid_(0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_(\d+)_eng_(\d+)_engtype_(.*)$")
 _MEMORY_RE = re.compile(r"luid_(0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_\d+$")
+
+
+def parse_engine_instance(inst: str) -> tuple[str, str, str, str, int] | None:
+    """Split a GPU Engine instance name into (LUID upper-cased, phys, engine, engine type, pid)."""
+    mt = _ENGINE_RE.search(inst)
+    if not mt:
+        return None
+    return mt[2].upper(), mt[3], mt[4], mt[5], int(mt[1])
 
 
 @dataclass(frozen=True)
@@ -146,12 +154,13 @@ class WindowsGpuCollector:
         engines: dict[tuple[str, str, str], float] = defaultdict(float)
         engine_type: dict[tuple[str, str, str], str] = {}
         for inst, value in self._pdh.array(self._util).items():
-            mt = _ENGINE_RE.search(inst)
-            if not mt:
+            parsed = parse_engine_instance(inst)
+            if parsed is None:
                 continue
-            key = (mt[1].upper(), mt[2], mt[3])
+            luid, phys, eng, etype, _pid = parsed
+            key = (luid, phys, eng)
             engines[key] += value
-            engine_type[key] = mt[4]
+            engine_type[key] = etype
 
         m: dict[str, float] = {}
         for luid, (gid, _) in self._adapters.items():
