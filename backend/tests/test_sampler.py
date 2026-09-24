@@ -133,6 +133,66 @@ def test_details_are_dropped_when_collector_fails():
     assert s.tick()["details"] == {}
 
 
+def background(name, metrics, interval=None):
+    c = StubCollector(name, metrics, interval=interval)
+    c.background = True
+    return c
+
+
+def test_tick_never_calls_background_collectors():
+    bg = background("bg", {"g": 1.0})
+    s, _ = make([bg, StubCollector("a", {"a.x": 1.0})])
+    snap = s.tick()
+    assert bg.calls == 0
+    assert snap["metrics"] == {"a.x": 1.0}
+
+
+def test_background_results_are_used_by_later_ticks():
+    bg = background("bg", {"g": 1.0})
+    s, clock = make([bg])
+    s.poll(bg)
+    assert s.tick()["metrics"] == {"g": 1.0}
+    bg.fail = True
+    clock.advance(5)
+    s.poll(bg)
+    snap = s.tick()
+    assert snap["metrics"] == {}
+    assert snap["status"]["bg"] == "error: boom"
+
+
+def test_slow_background_collector_does_not_delay_ticks():
+    """A collector that blocks (e.g. NVML waiting for a laptop dGPU to wake) must not stall updates."""
+    import time as _time
+
+    class Slow(StubCollector):
+        def sample(self):
+            _time.sleep(0.3)
+            return super().sample()
+
+    slow = Slow("slow", {"g": 1.0}, interval=0.1)
+    slow.background = True
+    fast = StubCollector("fast", {"f": 1.0})
+    hub = Hub()
+    s = Sampler([fast, slow], hub=hub, interval=0.02)
+
+    async def scenario():
+        q = hub.subscribe()
+        task = asyncio.create_task(s.run())
+        snaps = []
+        deadline = asyncio.get_running_loop().time() + 0.8
+        while asyncio.get_running_loop().time() < deadline:
+            snaps.append(await q.get())
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return snaps
+
+    snaps = asyncio.run(scenario())
+    gaps = [b["ts"] - a["ts"] for a, b in zip(snaps, snaps[1:])]
+    assert max(gaps) < 0.15, gaps
+    assert fast.calls >= 20
+    assert any("g" in snap["metrics"] for snap in snaps)
+
+
 def test_run_samples_on_one_dedicated_thread():
     """psutil.cpu_percent keeps per-thread state, so ticks must not hop between pool threads."""
     import threading

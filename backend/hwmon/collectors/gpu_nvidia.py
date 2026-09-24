@@ -13,6 +13,9 @@ def _load_nvml():
 
 class NvidiaGpuCollector:
     name = "gpu_nvidia"
+    # NVML calls can block ~0.5 s while a sleeping laptop dGPU wakes, so the sampler
+    # polls this collector on its own thread instead of in the main tick.
+    background = True
     # A metric NVML reports as unsupported is skipped for this many samples before
     # retrying (a sleeping laptop dGPU can report NotSupported transiently).
     UNSUPPORTED_RETRY_SAMPLES = 60

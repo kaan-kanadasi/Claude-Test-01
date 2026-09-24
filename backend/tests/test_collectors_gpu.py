@@ -261,3 +261,8 @@ def test_windows_gpu_includes_nvidia_when_not_excluded():
 def test_windows_gpu_unavailable_without_hardware_adapters():
     with pytest.raises(CollectorUnavailable):
         WindowsGpuCollector(adapters_fn=lambda: ADAPTERS[2:], pdh=make_pdh())
+
+
+def test_nvidia_runs_in_background():
+    """NVML calls can block ~0.5 s while a laptop dGPU wakes; keep them off the main tick."""
+    assert NvidiaGpuCollector.background is True

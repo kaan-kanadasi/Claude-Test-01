@@ -15,6 +15,12 @@ class CollectorUnavailable(Exception):
 
 
 class Collector(Protocol):
+    """Optional attributes the sampler also honors:
+
+    - ``background = True``: poll on the collector's own thread so slow reads never delay ticks.
+    - ``details``: live-only structured data set during ``sample()``; sent to clients, not stored.
+    """
+
     name: str
     # Minimum seconds between samples; None means every sampler tick.
     interval: float | None
