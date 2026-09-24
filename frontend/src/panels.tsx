@@ -138,6 +138,8 @@ export function GpuPanel({ gpu, latest, live, range }: Omit<PanelProps, "info"> 
   if (gpu.source === "nvml" && m[k("fan_pct")] != null) stats.push(["Fan", formatPercent(m[k("fan_pct")])]);
 
   const engines = ENGINE_LABELS.filter(([id]) => m[k(`engine.${id}`)] != null);
+  // Set by the backend on battery while this GPU is idle, to avoid waking it.
+  const paused = m[k("paused")] === 1;
 
   return (
     <section className="panel span-4" aria-labelledby={`${gpu.id}-h`}>
@@ -145,9 +147,16 @@ export function GpuPanel({ gpu, latest, live, range }: Omit<PanelProps, "info"> 
       <p className="sub">{sub}</p>
       <div className="headline">
         <span className="value num" style={{ color }}>{formatPercent(m[k("util")])}</span>
-        <span className="of">load</span>
+        <span className="of">{paused ? "load, asleep" : "load"}</span>
       </div>
-      <Stats items={stats} />
+      {paused ? (
+        <p className="notice">
+          On battery and idle, so detailed readings are paused to let this GPU sleep. They come back as
+          soon as something uses it.
+        </p>
+      ) : (
+        <Stats items={stats} />
+      )}
       {engines.length > 0 && (
         <ul className="rows">
           {engines.map(([id, label]) => {

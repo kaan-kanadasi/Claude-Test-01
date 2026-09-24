@@ -45,10 +45,18 @@ Set environment variables before `uv run hwmon`:
 | `HWMON_PORT` | `8765` | Port to listen on |
 | `HWMON_SAMPLE_INTERVAL` | `1.0` | Seconds between live readings |
 | `HWMON_PERSIST_INTERVAL` | `5.0` | Seconds between readings saved to history |
-| `HWMON_NVIDIA_INTERVAL` | `2.0` | Seconds between NVIDIA polls; `0` turns NVIDIA monitoring off (lets the GPU sleep longer on laptops) |
+| `HWMON_NVIDIA_INTERVAL` | `2.0` | Seconds between NVIDIA polls; `0` turns NVIDIA monitoring off entirely |
 | `HWMON_RAW_RETENTION_S` | `86400` | How long full-detail history is kept |
 | `HWMON_ROLLUP_RETENTION_S` | `2592000` | How long per-minute history is kept |
 | `HWMON_DB_PATH` | `backend/data/metrics.db` | History database file |
+
+### Laptop battery life
+
+On battery, the NVIDIA GPU is only queried while something is using it. Its load is
+checked through Windows GPU counters, which don't wake a sleeping GPU; while it's idle,
+its panel shows the load and says detailed readings are paused. On AC it's always read
+in full. NVIDIA readings also run on their own thread, so a GPU waking up never delays
+the rest of the dashboard.
 
 ## API
 

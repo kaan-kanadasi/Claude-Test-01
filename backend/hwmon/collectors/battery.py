@@ -36,6 +36,12 @@ def _wmi_query(cls: str, fields: list[str]) -> list[dict[str, Any]]:
     return [{f: getattr(r, f) for f in fields} for r in rows]
 
 
+def on_battery(ps=psutil) -> bool:
+    """True when running on battery power (never on machines without a battery)."""
+    b = ps.sensors_battery()
+    return b is not None and not b.power_plugged
+
+
 def _plausible_mw(v: Any) -> float | None:
     if v is None or not 0 <= v < _MAX_PLAUSIBLE_MW:
         return None

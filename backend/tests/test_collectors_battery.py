@@ -93,3 +93,11 @@ def test_wmi_failure_keeps_psutil_fields_and_other_tables():
 
 def test_static_info_marks_battery_present():
     assert BatteryCollector(ps=FakePs(battery()), wmi_query=FakeWmi()).static_info() == {"battery": {"present": True}}
+
+
+def test_on_battery_helper():
+    from hwmon.collectors.battery import on_battery
+
+    assert on_battery(FakePs(battery(plugged=False))) is True
+    assert on_battery(FakePs(battery(plugged=True))) is False
+    assert on_battery(FakePs(None)) is False  # desktops never count as on battery

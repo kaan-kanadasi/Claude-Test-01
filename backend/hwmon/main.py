@@ -58,7 +58,20 @@ def build_collectors(cfg: Config) -> tuple[list[Collector], dict[str, str]]:
     if cfg.nvidia_interval > 0:
         from .collectors.gpu_nvidia import NvidiaGpuCollector
 
-        nvidia = attempt("gpu_nvidia", lambda: NvidiaGpuCollector(interval=cfg.nvidia_interval))
+        from .collectors.battery import on_battery
+
+        # On battery, let an idle NVIDIA laptop GPU sleep: check its load via Windows
+        # counters (which don't wake it) and skip NVML while it's idle.
+        activity = None
+        if sys.platform == "win32":
+            try:
+                from .collectors.gpu_windows import AdapterActivity
+
+                activity = AdapterActivity(0x10DE)
+            except Exception as e:
+                log.info("NVIDIA battery saving unavailable: %s", e)
+        nvidia = attempt("gpu_nvidia", lambda: NvidiaGpuCollector(
+            interval=cfg.nvidia_interval, on_battery_fn=on_battery, activity_fn=activity))
     else:
         unavailable["gpu_nvidia"] = "disabled by HWMON_NVIDIA_INTERVAL=0"
 

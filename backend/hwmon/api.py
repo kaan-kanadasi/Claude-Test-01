@@ -48,9 +48,11 @@ async def live(ws: WebSocket) -> None:
     hub = ws.app.state.hub
     q = hub.subscribe()
     latest = ws.app.state.sampler.latest
+    last_sent_ts = float("-inf")
     try:
         if latest is not None:
             await ws.send_json(latest)
+            last_sent_ts = latest["ts"]
         # Incoming messages are never read as commands; we only watch for disconnects.
         receiver = asyncio.create_task(_drain(ws))
         try:
@@ -58,7 +60,11 @@ async def live(ws: WebSocket) -> None:
                 getter = asyncio.create_task(q.get())
                 done, _ = await asyncio.wait({getter, receiver}, return_when=asyncio.FIRST_COMPLETED)
                 if getter in done:
-                    await ws.send_json(getter.result())
+                    snap = getter.result()
+                    # A tick finishing just as we connect is both `latest` and published: send once.
+                    if snap["ts"] > last_sent_ts:
+                        await ws.send_json(snap)
+                        last_sent_ts = snap["ts"]
                 else:
                     getter.cancel()
         finally:

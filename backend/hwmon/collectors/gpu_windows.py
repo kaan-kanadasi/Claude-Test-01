@@ -107,6 +107,33 @@ def _default_pdh():
     return PdhQuery()
 
 
+class AdapterActivity:
+    """Current load of one vendor's GPUs, read from Windows counters.
+
+    These counters come from the OS GPU scheduler, so reading them does not wake a
+    sleeping laptop dGPU (verified: NVML still paid the ~1.5 s wake-up afterwards).
+    Returns None when no adapter of that vendor exists.
+    """
+
+    def __init__(self, vendor_id: int, adapters_fn: Callable[[], list[Adapter]] = enumerate_dxgi_adapters,
+                 pdh: Any = None):
+        self._luids = {a.luid.upper() for a in adapters_fn() if a.vendor_id == vendor_id and not a.software}
+        self._pdh = pdh if pdh is not None else _default_pdh()
+        self._util = self._pdh.add(UTIL_PATH)
+        self._pdh.collect()  # rate counter: needs a baseline
+
+    def __call__(self) -> float | None:
+        if not self._luids:
+            return None
+        self._pdh.collect()
+        engines: dict[tuple[str, str, str], float] = defaultdict(float)
+        for inst, value in self._pdh.array(self._util).items():
+            parsed = parse_engine_instance(inst)
+            if parsed is not None and parsed[0] in self._luids:
+                engines[parsed[:3]] += value
+        return min(max(engines.values(), default=0.0), 100.0)
+
+
 class WindowsGpuCollector:
     name = "gpu_windows"
     interval = None

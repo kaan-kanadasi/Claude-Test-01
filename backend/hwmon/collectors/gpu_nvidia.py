@@ -19,11 +19,20 @@ class NvidiaGpuCollector:
     # A metric NVML reports as unsupported is skipped for this many samples before
     # retrying (a sleeping laptop dGPU can report NotSupported transiently).
     UNSUPPORTED_RETRY_SAMPLES = 60
+    # On battery, below this load (from activity_fn) the GPU is treated as idle and NVML
+    # is not queried, so the dGPU can stay asleep.
+    ACTIVE_THRESHOLD_PCT = 1.0
 
-    def __init__(self, nvml: Any = None, interval: float | None = 2.0):
+    def __init__(self, nvml: Any = None, interval: float | None = 2.0,
+                 on_battery_fn: Callable[[], bool] | None = None,
+                 activity_fn: Callable[[], float | None] | None = None):
+        """``on_battery_fn`` and ``activity_fn`` (GPU load read without waking it) enable
+        battery saving; without them NVML is always queried."""
         from .base import CollectorUnavailable
 
         self.interval = interval
+        self._on_battery_fn = on_battery_fn
+        self._activity_fn = activity_fn
         try:
             self._nv = nvml if nvml is not None else _load_nvml()
             self._nv.nvmlInit()
@@ -33,6 +42,7 @@ class NvidiaGpuCollector:
         if count == 0:
             raise CollectorUnavailable("NVML found no NVIDIA GPUs")
         self._handles = [self._nv.nvmlDeviceGetHandleByIndex(i) for i in range(count)]
+        self._power_limits_w = [self._power_limit_w(h) for h in self._handles]
         # (device index, metric) -> sample number at which to retry an unsupported metric.
         self._unsupported: dict[tuple[int, str], int] = {}
         self._samples = 0
@@ -64,7 +74,7 @@ class NvidiaGpuCollector:
             "vram_used": lambda: nv.nvmlDeviceGetMemoryInfo(h).used,
             "vram_total": lambda: nv.nvmlDeviceGetMemoryInfo(h).total,
             "temp_c": lambda: nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU),
-            "power_w": lambda: nv.nvmlDeviceGetPowerUsage(h) / 1000.0,
+            "power_w": lambda: self._plausible_power(i, nv.nvmlDeviceGetPowerUsage(h) / 1000.0),
             "clock_gfx_mhz": lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_GRAPHICS),
             "clock_mem_mhz": lambda: nv.nvmlDeviceGetClockInfo(h, nv.NVML_CLOCK_MEM),
             "fan_pct": lambda: nv.nvmlDeviceGetFanSpeed(h),
@@ -87,7 +97,34 @@ class NvidiaGpuCollector:
             })
         return {"gpus": gpus}
 
+    def _power_limit_w(self, h) -> float | None:
+        try:
+            return self._nv.nvmlDeviceGetEnforcedPowerLimit(h) / 1000.0
+        except Exception:  # NVMLError, or missing from older bindings
+            return None
+
+    def _plausible_power(self, i: int, watts: float) -> float | None:
+        """Drop readings far above the card's power limit (seen right after a dGPU wakes)."""
+        limit = self._power_limits_w[i]
+        return None if limit and watts > 2 * limit else watts
+
+    def _idle_on_battery(self) -> float | None:
+        """The GPU's load if we're on battery and it's idle (so NVML should be skipped)."""
+        if self._on_battery_fn is None or self._activity_fn is None or not self._on_battery_fn():
+            return None
+        load = self._activity_fn()
+        return load if load is not None and load < self.ACTIVE_THRESHOLD_PCT else None
+
     def sample(self) -> dict[str, float]:
+        idle_load = self._idle_on_battery()
+        if idle_load is not None:
+            # Any NVML query would wake the sleeping dGPU; report its idle load only.
+            m = {}
+            for i in range(len(self._handles)):
+                m[f"gpu.nvidia{i}.util"] = idle_load
+                m[f"gpu.nvidia{i}.paused"] = 1.0
+            return m
+
         m: dict[str, float] = {}
         not_supported = getattr(self._nv, "NVMLError_NotSupported", ())
         self._samples += 1
@@ -96,7 +133,9 @@ class NvidiaGpuCollector:
                 if self._unsupported.get((i, metric), 0) > self._samples:
                     continue
                 try:
-                    m[f"gpu.nvidia{i}.{metric}"] = float(read())
+                    value = read()
+                    if value is not None:
+                        m[f"gpu.nvidia{i}.{metric}"] = float(value)
                 except not_supported:
                     self._unsupported[(i, metric)] = self._samples + self.UNSUPPORTED_RETRY_SAMPLES
                 except self._nv.NVMLError:

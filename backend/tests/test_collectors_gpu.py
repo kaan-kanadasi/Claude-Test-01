@@ -266,3 +266,64 @@ def test_windows_gpu_unavailable_without_hardware_adapters():
 def test_nvidia_runs_in_background():
     """NVML calls can block ~0.5 s while a laptop dGPU wakes; keep them off the main tick."""
     assert NvidiaGpuCollector.background is True
+
+
+# ------------------------------------------------ battery-aware NVIDIA polling ----
+
+def nvml_must_not_be_called(nv):
+    def boom(*_):
+        raise AssertionError("NVML queried while the GPU should be left asleep")
+    for name in ("nvmlDeviceGetUtilizationRates", "nvmlDeviceGetMemoryInfo", "nvmlDeviceGetTemperature",
+                 "nvmlDeviceGetPowerUsage", "nvmlDeviceGetClockInfo", "nvmlDeviceGetFanSpeed",
+                 "nvmlDeviceGetSamples"):
+        setattr(nv, name, boom)
+
+
+def test_nvidia_idle_on_battery_is_not_woken():
+    nv = FakeNvml()
+    c = NvidiaGpuCollector(nvml=nv, on_battery_fn=lambda: True, activity_fn=lambda: 0.3)
+    nvml_must_not_be_called(nv)
+    assert c.sample() == {"gpu.nvidia0.util": 0.3, "gpu.nvidia0.paused": 1.0}
+
+
+def test_nvidia_in_use_on_battery_is_read_fully():
+    c = NvidiaGpuCollector(nvml=FakeNvml(), on_battery_fn=lambda: True, activity_fn=lambda: 12.0)
+    m = c.sample()
+    assert m["gpu.nvidia0.temp_c"] == 48.0
+    assert "gpu.nvidia0.paused" not in m
+
+
+def test_nvidia_on_ac_is_read_fully_even_when_idle():
+    c = NvidiaGpuCollector(nvml=FakeNvml(), on_battery_fn=lambda: False, activity_fn=lambda: 0.0)
+    assert c.sample()["gpu.nvidia0.temp_c"] == 48.0
+
+
+def test_nvidia_read_fully_when_activity_unknown():
+    c = NvidiaGpuCollector(nvml=FakeNvml(), on_battery_fn=lambda: True, activity_fn=lambda: None)
+    assert c.sample()["gpu.nvidia0.temp_c"] == 48.0
+
+
+def test_adapter_activity_reads_vendor_load_from_windows_counters():
+    from hwmon.collectors.gpu_windows import AdapterActivity
+
+    act = AdapterActivity(0x10DE, adapters_fn=lambda: ADAPTERS, pdh=make_pdh())
+    assert act() == 50.0  # NVIDIA 3D engine in make_pdh()
+    idle = make_pdh()
+    idle.arrays[UTIL] = {}
+    assert AdapterActivity(0x10DE, adapters_fn=lambda: ADAPTERS, pdh=idle)() == 0.0
+
+
+def test_adapter_activity_unknown_without_matching_adapter():
+    from hwmon.collectors.gpu_windows import AdapterActivity
+
+    assert AdapterActivity(0x1002, adapters_fn=lambda: ADAPTERS, pdh=make_pdh())() is None
+
+
+def test_nvidia_power_above_the_cards_limit_is_dropped():
+    """Right after a laptop dGPU wakes, NVML has reported e.g. 590 W on a 45 W card."""
+    nv = FakeNvml()
+    nv.nvmlDeviceGetEnforcedPowerLimit = lambda h: 45_000
+    nv.nvmlDeviceGetPowerUsage = lambda h: 590_006
+    assert "gpu.nvidia0.power_w" not in NvidiaGpuCollector(nvml=nv).sample()
+    nv.nvmlDeviceGetPowerUsage = lambda h: 44_000
+    assert NvidiaGpuCollector(nvml=nv).sample()["gpu.nvidia0.power_w"] == 44.0
