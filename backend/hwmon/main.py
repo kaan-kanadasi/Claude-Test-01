@@ -26,6 +26,7 @@ CollectorsFactory = Callable[[Config], tuple[list[Collector], dict[str, str]]]
 
 def build_collectors(cfg: Config) -> tuple[list[Collector], dict[str, str]]:
     """Instantiate every collector that works on this machine; record why others don't."""
+    from .collectors.battery import BatteryCollector
     from .collectors.cpu import CpuCollector
     from .collectors.memory import MemoryCollector
     from .collectors.network import NetworkCollector
@@ -67,6 +68,12 @@ def build_collectors(cfg: Config) -> tuple[list[Collector], dict[str, str]]:
         # NVML gives richer NVIDIA data; use Windows counters only for the other GPUs.
         exclude = {0x10DE} if nvidia is not None else set()
         attempt("gpu_windows", lambda: WindowsGpuCollector(exclude_vendors=exclude))
+
+        from .collectors.processes import ProcessCollector
+
+        attempt("processes", ProcessCollector)
+
+    attempt("battery", BatteryCollector)
 
     attempt("sensors", NullSensors)
     return collectors, unavailable
