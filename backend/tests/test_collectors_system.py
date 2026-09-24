@@ -29,6 +29,19 @@ class TestCpu:
         c = CpuCollector(ps=FakePsutil(), freq_fn=lambda: None, name_fn=lambda: "x")
         assert "cpu.freq_mhz" not in c.sample()
 
+    def test_first_sample_on_a_new_thread_omits_load_instead_of_reporting_zero(self):
+        """psutil.cpu_percent baselines are per thread; an unprimed thread would read 0%."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        c = CpuCollector(ps=FakePsutil(), freq_fn=lambda: 3100.0, name_fn=lambda: "x")
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(c.sample).result()
+            second = pool.submit(c.sample).result()
+        assert "cpu.total" not in first
+        assert not any(k.startswith("cpu.core.") for k in first)
+        assert first["cpu.freq_mhz"] == 3100.0
+        assert second["cpu.total"] == 40.0
+
     def test_static_info(self):
         c = CpuCollector(ps=FakePsutil(), freq_fn=lambda: None, name_fn=lambda: "Test CPU")
         assert c.static_info() == {

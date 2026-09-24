@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import sys
+import threading
 from typing import Callable
 
 import psutil
@@ -63,9 +64,14 @@ class CpuCollector:
         self._ps = ps
         self._freq_fn = freq_fn if freq_fn is not None else _default_freq_fn(ps)
         self._name = name_fn()
-        # Prime psutil's internal counters so the first real sample is meaningful.
-        ps.cpu_percent(percpu=True)
-        ps.cpu_percent()
+        # psutil keeps cpu_percent() baselines per thread; remember which threads have one.
+        self._primed: set[int] = set()
+        self._prime()
+
+    def _prime(self) -> None:
+        self._ps.cpu_percent(percpu=True)
+        self._ps.cpu_percent()
+        self._primed.add(threading.get_ident())
 
     def static_info(self) -> dict:
         f = self._ps.cpu_freq()
@@ -79,9 +85,14 @@ class CpuCollector:
         }
 
     def sample(self) -> dict[str, float]:
-        m: dict[str, float] = {"cpu.total": float(self._ps.cpu_percent())}
-        for i, pct in enumerate(self._ps.cpu_percent(percpu=True)):
-            m[metric_key("cpu", "core", i)] = float(pct)
+        m: dict[str, float] = {}
+        if threading.get_ident() not in self._primed:
+            # First call on this thread would read 0%: take a baseline and report load next time.
+            self._prime()
+        else:
+            m["cpu.total"] = float(self._ps.cpu_percent())
+            for i, pct in enumerate(self._ps.cpu_percent(percpu=True)):
+                m[metric_key("cpu", "core", i)] = float(pct)
         freq = self._freq_fn()
         if freq:
             m["cpu.freq_mhz"] = float(freq)
