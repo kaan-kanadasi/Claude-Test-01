@@ -14,6 +14,7 @@
   --disk-2: #6e4a10;
   --net: #c23b6b;
   --net-2: #7a1f42;
+  --battery: #5f8a10;
   --danger: #b42318;
 
   --font-text: "Barlow", system-ui, sans-serif;
@@ -38,6 +39,7 @@
     --disk-2: #f5d9a3;
     --net: #e56d98;
     --net-2: #f7b8cf;
+    --battery: #a9cf4a;
     --danger: #f97066;
   }
 }
@@ -211,6 +213,7 @@ button:focus-visible {
 .span-4 { grid-column: span 4; }
 .span-5 { grid-column: span 5; }
 .span-7 { grid-column: span 7; }
+.span-8 { grid-column: span 8; }
 .span-12 { grid-column: span 12; }
 
 .panel {
@@ -316,10 +319,51 @@ button:focus-visible {
 .notice { color: var(--muted); font-size: 15px; margin: 10px 0 4px; max-width: 70ch; }
 .notice.error { color: var(--danger); }
 
+.procs {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 15px;
+}
+.procs col.n { width: 22%; }
+.procs th {
+  padding: 4px 8px 6px;
+  text-align: right;
+  font-weight: 500;
+  color: var(--muted);
+}
+.procs th:first-child, .procs td:first-child { text-align: left; padding-left: 0; }
+.procs th:last-child, .procs td:last-child { padding-right: 0; }
+.procs th button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.procs th[aria-sort="descending"] button { color: var(--ink); font-weight: 600; }
+.procs td {
+  padding: 6px 8px;
+  text-align: right;
+  border-top: 1px solid var(--rule);
+}
+.procs .app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.procs .count { color: var(--muted); }
+.gpu-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
 .sensors { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 24px; }
 
 @media (max-width: 1000px) {
-  .span-4, .span-5, .span-7 { grid-column: span 12; }
+  .span-4, .span-5, .span-7, .span-8 { grid-column: span 12; }
 }
 @media (max-width: 640px) {
   .page { padding: 16px 16px 32px; }

@@ -5,6 +5,17 @@ export interface Snapshot {
   ts: number; // epoch seconds
   metrics: Record<string, number>;
   status: Record<string, string>;
+  details?: { processes?: ProcessRow[] }; // live-only data, never in history
+}
+
+/** Processes grouped by executable name. cpu/gpu are % of the whole CPU/GPU, memory in bytes. */
+export interface ProcessRow {
+  name: string;
+  count: number;
+  cpu: number;
+  memory: number;
+  gpu: number;
+  gpu_adapter: string | null;
 }
 
 export interface GpuInfo {
@@ -22,6 +33,7 @@ export interface Info {
   gpus: GpuInfo[];
   disks?: { id: string; mountpoint: string; fstype: string; total: number }[];
   network?: { name: string; speed_mbps: number; addresses: string[] }[];
+  battery?: { present: boolean };
   unavailable: Record<string, string>;
   config: { sample_interval: number; persist_interval: number };
 }

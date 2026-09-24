@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchInfo, useLiveSnapshots, type Connection, type Info } from "./api";
-import { CpuHero, GpuPanel, MemoryPanel, NetworkPanel, SensorsPanel, StoragePanel } from "./panels";
+import { BatteryPanel, CpuHero, GpuPanel, MemoryPanel, NetworkPanel, ProcessesPanel, SensorsPanel, StoragePanel } from "./panels";
 import { RANGES, type Range } from "./useSeries";
 
 const LIVE_POINTS = 300; // five minutes at one sample per second
@@ -68,6 +68,8 @@ export default function App() {
             ))}
             <StoragePanel info={info} latest={latest} live={buffer} range={range} />
             <NetworkPanel info={info} latest={latest} live={buffer} range={range} />
+            <ProcessesPanel info={info} latest={latest} wide={!info.battery} />
+            {info.battery && <BatteryPanel latest={latest} live={buffer} range={range} />}
             <SensorsPanel info={info} latest={latest} />
           </div>
         </>

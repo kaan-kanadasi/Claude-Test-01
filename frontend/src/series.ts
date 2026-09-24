@@ -54,3 +54,9 @@ export function pushBounded<T>(arr: T[], item: T, limit: number): T[] {
 export function metricKey(...parts: (string | number)[]): string {
   return parts.map((p) => String(p).replace(/[.:\\/]+/g, "_").replace(/^_+|_+$/g, "")).join(".");
 }
+
+export type ProcessSort = "cpu" | "memory" | "gpu";
+
+export function sortProcesses<T extends { name: string } & Record<ProcessSort, number>>(rows: T[], key: ProcessSort): T[] {
+  return [...rows].sort((a, b) => b[key] - a[key] || a.name.localeCompare(b.name));
+}

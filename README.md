@@ -1,8 +1,9 @@
 # Hardware Monitor
 
 A local, read-only dashboard for this computer's hardware: CPU (per thread), memory,
-GPUs (NVIDIA via NVML, Intel/AMD via Windows GPU counters), storage, and network, with
-live updates every second and stored history up to 30 days.
+GPUs (NVIDIA via NVML, Intel/AMD via Windows GPU counters), storage, network, battery,
+and the apps using the most CPU, memory and GPU, with live updates every second and
+stored history up to 30 days.
 
 It only *reads* hardware state. It never changes clocks, voltages, fan speeds or any
 other setting, and the API has no write endpoints.
@@ -59,7 +60,13 @@ Set environment variables before `uv run hwmon`:
 | `WS /ws/live` | A snapshot pushed every sample interval |
 
 Metric keys are dotted, e.g. `cpu.total`, `cpu.core.3`, `gpu.nvidia0.util`,
-`gpu.intel0.engine.VideoDecode`, `disk.C.used`, `net.Wi-Fi.rx_bps`.
+`gpu.intel0.engine.VideoDecode`, `disk.C.used`, `net.Wi-Fi.rx_bps`,
+`battery.percent`, `battery.discharge_w`.
+
+Snapshots also carry live-only `details` that are not stored in history. Currently
+that's `details.processes`: apps grouped by executable name with `cpu` (% of the whole
+CPU), `memory` (private working set, bytes), `gpu` (% of their busiest GPU engine),
+and `gpu_adapter`.
 
 ## Tests
 

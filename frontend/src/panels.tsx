@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import type { GpuInfo, Info, Snapshot } from "./api";
+import type { GpuInfo, Info, ProcessRow, Snapshot } from "./api";
 import { CollectorNotice, Legend, Meter, Stats, TimeChart, type Line } from "./components";
-import { displayName, formatBytes, formatClock, formatPercent, formatRate, formatTemp, formatWatts } from "./format";
-import { metricKey } from "./series";
+import { batteryState, displayName, formatBytes, formatClock, formatPercent, formatRate, formatTemp, formatWatts } from "./format";
+import { metricKey, sortProcesses, type ProcessSort } from "./series";
 import { useSeries, type Range } from "./useSeries";
 
 interface PanelProps {
@@ -268,6 +268,103 @@ export function NetworkPanel({ info, latest, live, range }: PanelProps) {
           <Legend lines={lines} />
         </>
       )}
+    </section>
+  );
+}
+
+// ---- Processes -------------------------------------------------------------
+
+const PROCESS_ROWS = 12;
+const PROCESS_COLUMNS: { key: ProcessSort; label: string }[] = [
+  { key: "cpu", label: "CPU" },
+  { key: "memory", label: "Memory" },
+  { key: "gpu", label: "GPU" },
+];
+
+function adapterColor(info: Info, adapter: string | null): string {
+  const gpu = info.gpus.find((g) => g.name === adapter);
+  return gpu ? gpuColor(gpu) : "var(--muted)";
+}
+
+export function ProcessesPanel({ info, latest, wide }: Pick<PanelProps, "info" | "latest"> & { wide: boolean }) {
+  const [sortBy, setSortBy] = useState<ProcessSort>("cpu");
+  const all: ProcessRow[] = latest?.details?.processes ?? [];
+  const rows = sortProcesses(all, sortBy).slice(0, PROCESS_ROWS);
+  const running = latest?.metrics["proc.count"];
+
+  return (
+    <section className={`panel ${wide ? "span-12" : "span-8"}`} aria-labelledby="procs-h">
+      <h2 id="procs-h">Top apps</h2>
+      <p className="sub">
+        Processes grouped by app{running ? `, ${running} running` : ""}. Select a column to sort.
+      </p>
+      <CollectorNotice status={latest?.status.processes} />
+      {rows.length === 0 ? (
+        !latest || latest.status.processes === "ok" ? <p className="notice">Collecting the first readings…</p> : null
+      ) : (
+        <table className="procs">
+          <colgroup><col /><col className="n" /><col className="n" /><col className="n" /></colgroup>
+          <thead>
+            <tr>
+              <th scope="col">App</th>
+              {PROCESS_COLUMNS.map((c) => (
+                <th key={c.key} scope="col" aria-sort={sortBy === c.key ? "descending" : "none"}>
+                  <button onClick={() => setSortBy(c.key)} aria-pressed={sortBy === c.key}>
+                    {c.label}{sortBy === c.key ? " ↓" : ""}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name}>
+                <td className="app" title={r.name}>
+                  {r.name}{r.count > 1 && <span className="count"> ({r.count})</span>}
+                </td>
+                <td className="num">{formatPercent(r.cpu)}</td>
+                <td className="num">{formatBytes(r.memory)}</td>
+                <td className="num" title={r.gpu_adapter ? displayName(r.gpu_adapter) : undefined}>
+                  {r.gpu >= 0.05 && r.gpu_adapter && (
+                    <i className="gpu-dot" style={{ background: adapterColor(info, r.gpu_adapter) }} aria-hidden="true" />
+                  )}
+                  {formatPercent(r.gpu)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+// ---- Battery ---------------------------------------------------------------
+
+export function BatteryPanel({ latest, live, range }: Omit<PanelProps, "info">) {
+  const m = latest?.metrics ?? {};
+  const rows = useSeries(["battery.percent"], range, live);
+  const lines: Line[] = [{ key: "battery.percent", color: "var(--battery)", label: "Charge" }];
+
+  const stats: [string, string][] = [];
+  if ((m["battery.discharge_w"] ?? 0) > 0) stats.push(["Power draw", formatWatts(m["battery.discharge_w"])]);
+  else if ((m["battery.charge_w"] ?? 0) > 0) stats.push(["Charging at", formatWatts(m["battery.charge_w"])]);
+  if (m["battery.voltage_v"] != null) stats.push(["Voltage", `${m["battery.voltage_v"].toFixed(1)} V`]);
+  if (m["battery.full_wh"] != null) stats.push(["Full charge", `${m["battery.full_wh"].toFixed(1)} Wh`]);
+  if (m["battery.cycles"] != null) stats.push(["Charge cycles", String(m["battery.cycles"])]);
+
+  return (
+    <section className="panel span-4" aria-labelledby="battery-h">
+      <h2 id="battery-h">Battery</h2>
+      <p className="sub">{latest ? batteryState(m) : "Reading battery…"}</p>
+      <div className="headline">
+        <span className="value num" style={{ color: "var(--battery)" }}>{formatPercent(m["battery.percent"])}</span>
+        <span className="of">charged</span>
+      </div>
+      <Meter fraction={(m["battery.percent"] ?? 0) / 100} color="var(--battery)" label="Battery charge" />
+      <Stats items={stats} />
+      <CollectorNotice status={latest?.status.battery} />
+      <TimeChart rows={rows} lines={lines} range={range} format={formatPercent} max={100} />
     </section>
   );
 }

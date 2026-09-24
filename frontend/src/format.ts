@@ -45,3 +45,23 @@ export function formatWatts(w: number | null | undefined): string {
 export function displayName(name: string): string {
   return name.replace(/\((R|TM|C)\)/gi, "").replace(/\s+/g, " ").trim();
 }
+
+export function formatDuration(seconds: number): string {
+  const totalMin = Math.max(1, Math.round(seconds / 60));
+  const h = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (h === 0) return `${min} min`;
+  return min === 0 ? `${h} h` : `${h} h ${min} min`;
+}
+
+/** Plain-language battery state from battery.* metrics. */
+export function batteryState(m: Record<string, number | undefined>): string {
+  if (m["battery.plugged"] === 1) {
+    const charging = m["battery.charging"];
+    if (charging === 1) return "Charging";
+    if (charging === 0) return (m["battery.percent"] ?? 0) >= 99 ? "Plugged in, fully charged" : "Plugged in, not charging";
+    return "Plugged in";
+  }
+  const left = m["battery.secs_left"];
+  return left != null ? `On battery, ${formatDuration(left)} left` : "On battery";
+}

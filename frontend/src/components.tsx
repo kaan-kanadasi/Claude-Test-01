@@ -44,7 +44,7 @@ export function TimeChart({
             stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false}
           />
           <YAxis
-            domain={[0, max ?? "auto"]} tickFormatter={format} width={64}
+            domain={[0, max ?? "auto"]} tickFormatter={format} width={74}
             // A known maximum gets evenly spaced 0 / half / max ticks; otherwise let Recharts pick 3.
             ticks={max ? [0, max / 2, max] : undefined} tickCount={3}
             stroke="var(--muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false}
