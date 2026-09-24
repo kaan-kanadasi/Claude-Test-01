@@ -9,10 +9,17 @@ from hwmon.collectors.gpu_windows import Adapter, WindowsGpuCollector
 
 # ---------------------------------------------------------------- NVIDIA ----
 
+def nvml_sample(ts, value):
+    return NS(timeStamp=ts, sampleValue=NS(uiVal=value))
+
+
 class FakeNvml:
     NVML_TEMPERATURE_GPU = 0
     NVML_CLOCK_GRAPHICS = 0
     NVML_CLOCK_MEM = 2
+    NVML_GPU_UTILIZATION_SAMPLES = 1
+    NVML_MEMORY_UTILIZATION_SAMPLES = 2
+    NVML_VALUE_TYPE_UNSIGNED_INT = 1
 
     class NVMLError(Exception):
         pass
@@ -24,6 +31,15 @@ class FakeNvml:
         self.count, self.init_fails = count, init_fails
         self.fan_calls = 0
         self.util = 37
+        self.rates_fail = False
+        # Driver sample buffers per sample type: list of (timestamp_us, percent).
+        self.buffers = {1: [(100, 30), (200, 44)], 2: [(100, 10), (200, 14)]}
+        self.samples_fail = False
+
+    def nvmlDeviceGetSamples(self, h, sample_type, last_seen):
+        if self.samples_fail:
+            raise self.NVMLError("Unknown Error")
+        return 1, [nvml_sample(t, v) for t, v in self.buffers[sample_type] if t > last_seen]
 
     def nvmlInit(self):
         if self.init_fails:
@@ -45,6 +61,8 @@ class FakeNvml:
         return "NVIDIA GeForce RTX 4050 Laptop GPU"
 
     def nvmlDeviceGetUtilizationRates(self, h):
+        if self.rates_fail:
+            raise self.NVMLError("Unknown Error")
         return NS(gpu=self.util, memory=12)
 
     def nvmlDeviceGetMemoryInfo(self, h):
@@ -86,6 +104,34 @@ def test_nvidia_sample():
         "gpu.nvidia0.clock_gfx_mhz": 2100.0,
         "gpu.nvidia0.clock_mem_mhz": 8000.0,
     }
+
+
+def test_nvidia_util_averages_new_driver_samples_since_last_poll():
+    nv = FakeNvml()
+    nv.rates_fail = True  # GetUtilizationRates is flaky on Optimus laptops; samples are not
+    c = NvidiaGpuCollector(nvml=nv)
+    assert c.sample()["gpu.nvidia0.util"] == 37.0
+    nv.buffers[1].append((300, 90))
+    nv.buffers[2].append((300, 50))
+    m = c.sample()
+    assert m["gpu.nvidia0.util"] == 90.0  # only samples newer than the last poll
+    assert m["gpu.nvidia0.mem_util"] == 50.0
+
+
+def test_nvidia_util_falls_back_to_rates_when_no_new_samples():
+    nv = FakeNvml()
+    c = NvidiaGpuCollector(nvml=nv)
+    c.sample()
+    nv.util = 5
+    assert c.sample()["gpu.nvidia0.util"] == 5.0
+
+
+def test_nvidia_util_omitted_when_both_sources_fail():
+    nv = FakeNvml()
+    nv.samples_fail = nv.rates_fail = True
+    m = NvidiaGpuCollector(nvml=nv).sample()
+    assert "gpu.nvidia0.util" not in m
+    assert m["gpu.nvidia0.temp_c"] == 48.0
 
 
 def test_nvidia_unsupported_metric_is_retried_only_after_cooldown():

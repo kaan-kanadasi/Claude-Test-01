@@ -11,6 +11,9 @@ dependencies = [
     "pywin32>=306; sys_platform == 'win32'",
 ]
 
+[project.scripts]
+hwmon = "hwmon.main:run"
+
 [dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27"]
 

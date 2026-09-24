@@ -33,12 +33,31 @@ class NvidiaGpuCollector:
         # (device index, metric) -> sample number at which to retry an unsupported metric.
         self._unsupported: dict[tuple[int, str], int] = {}
         self._samples = 0
+        # (device index, sample type) -> newest driver sample timestamp already consumed.
+        self._last_sample_ts: dict[tuple[int, int], int] = {}
 
-    def _readers(self, h) -> dict[str, Callable[[], float]]:
+    def _utilization(self, i: int, h, sample_type: int, rates_field: str) -> float:
+        """Mean of the driver's utilization samples since the last poll.
+
+        nvmlDeviceGetUtilizationRates fails intermittently with "Unknown Error" on
+        Optimus laptops while the sample buffer stays readable, so prefer the buffer
+        and fall back to the instantaneous rate when there are no new samples.
+        """
+        nv = self._nv
+        try:
+            _, samples = nv.nvmlDeviceGetSamples(h, sample_type, self._last_sample_ts.get((i, sample_type), 0))
+        except nv.NVMLError:
+            samples = []
+        if samples:
+            self._last_sample_ts[(i, sample_type)] = samples[-1].timeStamp
+            return sum(s.sampleValue.uiVal for s in samples) / len(samples)
+        return getattr(nv.nvmlDeviceGetUtilizationRates(h), rates_field)
+
+    def _readers(self, i: int, h) -> dict[str, Callable[[], float]]:
         nv = self._nv
         return {
-            "util": lambda: nv.nvmlDeviceGetUtilizationRates(h).gpu,
-            "mem_util": lambda: nv.nvmlDeviceGetUtilizationRates(h).memory,
+            "util": lambda: self._utilization(i, h, nv.NVML_GPU_UTILIZATION_SAMPLES, "gpu"),
+            "mem_util": lambda: self._utilization(i, h, nv.NVML_MEMORY_UTILIZATION_SAMPLES, "memory"),
             "vram_used": lambda: nv.nvmlDeviceGetMemoryInfo(h).used,
             "vram_total": lambda: nv.nvmlDeviceGetMemoryInfo(h).total,
             "temp_c": lambda: nv.nvmlDeviceGetTemperature(h, nv.NVML_TEMPERATURE_GPU),
@@ -70,7 +89,7 @@ class NvidiaGpuCollector:
         not_supported = getattr(self._nv, "NVMLError_NotSupported", ())
         self._samples += 1
         for i, h in enumerate(self._handles):
-            for metric, read in self._readers(h).items():
+            for metric, read in self._readers(i, h).items():
                 if self._unsupported.get((i, metric), 0) > self._samples:
                     continue
                 try:
