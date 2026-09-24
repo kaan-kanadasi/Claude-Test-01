@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from .collectors.base import Collector
@@ -103,14 +104,20 @@ class Sampler:
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
+        # Always sample on the same thread: psutil.cpu_percent() keeps its baseline per
+        # thread, so hopping between pool threads yields 0% or wrong-interval readings.
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hwmon-sampler")
         next_tick = loop.time()
-        while True:
-            snapshot = await asyncio.to_thread(self.tick)
-            if self.hub is not None:
-                self.hub.publish(snapshot)
-            next_tick += self.interval
-            delay = next_tick - loop.time()
-            if delay < 0:  # fell behind (e.g. system sleep): resync instead of bursting
-                next_tick = loop.time()
-                delay = 0
-            await asyncio.sleep(delay)
+        try:
+            while True:
+                snapshot = await loop.run_in_executor(executor, self.tick)
+                if self.hub is not None:
+                    self.hub.publish(snapshot)
+                next_tick += self.interval
+                delay = next_tick - loop.time()
+                if delay < 0:  # fell behind (e.g. system sleep): resync instead of bursting
+                    next_tick = loop.time()
+                    delay = 0
+                await asyncio.sleep(delay)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)

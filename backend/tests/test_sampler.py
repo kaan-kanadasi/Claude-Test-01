@@ -105,6 +105,38 @@ def test_persists_at_persist_interval():
     assert [ts for ts, _ in store.writes] == [1000.0, 1005.0, 1010.0]
 
 
+def test_run_samples_on_one_dedicated_thread():
+    """psutil.cpu_percent keeps per-thread state, so ticks must not hop between pool threads."""
+    import threading
+    import time as _time
+
+    class ThreadRecorder(StubCollector):
+        def __init__(self):
+            super().__init__("rec", {})
+            self.threads = set()
+
+        def sample(self):
+            self.calls += 1
+            self.threads.add(threading.get_ident())
+            return {}
+
+    rec = ThreadRecorder()
+    s = Sampler([rec], interval=0.01)
+
+    async def scenario():
+        task = asyncio.create_task(s.run())
+        # Keep the default executor busy so a to_thread-based loop would land on other threads.
+        await asyncio.gather(*(asyncio.to_thread(_time.sleep, 0.05) for _ in range(16)))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    assert rec.calls >= 5
+    assert len(rec.threads) == 1
+    assert threading.get_ident() not in rec.threads
+
+
 def test_hub_keeps_only_latest_for_slow_subscribers():
     async def scenario():
         hub = Hub()
